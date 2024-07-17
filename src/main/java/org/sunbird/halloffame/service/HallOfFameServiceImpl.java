@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 import org.sunbird.cassandra.utils.CassandraOperation;
 import org.sunbird.common.model.SBApiResponse;
 import org.sunbird.common.util.AccessTokenValidator;
@@ -15,7 +16,6 @@ import org.sunbird.common.util.ProjectUtil;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * @author mahesh.vakkund
@@ -28,6 +28,7 @@ public class HallOfFameServiceImpl implements HallOfFameService {
     private Logger logger = LoggerFactory.getLogger(getClass().getName());
     @Autowired
     AccessTokenValidator accessTokenValidator;
+
     @Override
     public Map<String, Object> fetchHallOfFameData() {
         Map<String, Object> resultMap = new HashMap<>();
@@ -109,6 +110,53 @@ public class HallOfFameServiceImpl implements HallOfFameService {
             setInternalServerErrorResponse(response);
         }
 
+        return response;
+    }
+
+    @Override
+    public SBApiResponse fetchingTop10Learners(String rootOrgId, String authToken) {
+        SBApiResponse response = ProjectUtil.createDefaultResponse(Constants.TOP_10_LEARNERS);
+        try {
+            if (StringUtils.isEmpty(rootOrgId)) {
+                setBadRequestResponse(response, Constants.ORG_ID_MISSING);
+                return response;
+            }
+            String userId = validateAuthTokenAndFetchUserId(authToken);
+            if (StringUtils.isBlank(userId)) {
+                setBadRequestResponse(response, Constants.USER_ID_DOESNT_EXIST);
+                return response;
+            }
+            Map<String, Object> propertiesMap = new HashMap<>();
+            propertiesMap.put(Constants.USER_ID_LOWER, userId);
+
+            List<Map<String, Object>> userRowNum = cassandraOperation.getRecordsByPropertiesWithoutFiltering(
+                    Constants.SUNBIRD_KEY_SPACE_NAME,
+                    Constants.TABLE_LEARNER_LEADER_BOARD_LOOK_UP,
+                    propertiesMap,
+                    null
+            );
+            if (CollectionUtils.isEmpty(userRowNum)) {
+                setNotFoundResponse(response, Constants.USER_ID_DOESNT_EXIST);
+                return response;
+            }
+            Map<String, Object> propMap = new HashMap<>();
+            int res = (Integer) userRowNum.get(0).get(Constants.DB_COLUMN_ROW_NUM);
+            List<Integer> ranksFilter = Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+            propMap.put(Constants.DB_COLUMN_ROW_NUM, ranksFilter);
+            propMap.put(Constants.ORGID, rootOrgId);
+
+            List<Map<String, Object>> result = cassandraOperation.getRecordsByPropertiesWithoutFiltering(
+                    Constants.SUNBIRD_KEY_SPACE_NAME,
+                    Constants.TABLE_TOP_10_LEARNER,
+                    propMap,
+                    null
+            );
+            response.put(Constants.RESULT, result);
+            return response;
+
+        } catch (Exception e) {
+            setInternalServerErrorResponse(response);
+        }
         return response;
     }
 
